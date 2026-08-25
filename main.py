@@ -52,10 +52,25 @@ class ScreenDashboard(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Dashboard (Dados CAN Simulados)"))
         
+        self.lbl_rpm = QLabel("RPM: 0")
+        self.lbl_speed = QLabel("Velocidade: 0 km/h")
+        
+        font = self.lbl_rpm.font()
+        font.setPointSize(24)
+        self.lbl_rpm.setFont(font)
+        self.lbl_speed.setFont(font)
+
+        layout.addWidget(self.lbl_rpm)
+        layout.addWidget(self.lbl_speed)
+        
         self.btn_go_home = QPushButton("Voltar para Home")
         layout.addWidget(self.btn_go_home)
         
         self.setLayout(layout)
+
+    def update_dashboard_data(self, rpm, speed):
+        self.lbl_rpm.setText(f"RPM: {rpm}")
+        self.lbl_speed.setText(f"Velocidade: {speed} km/h")
 
 # -- Janela Principal --
 class MainWindow(QMainWindow):
@@ -73,17 +88,25 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.screen_home)
         self.stacked_widget.addWidget(self.screen_dashboard)
 
-        # Formato: emissor.sinal.connect(funcao_destino)
         self.screen_home.btn_go_dashboard.clicked.connect(self.go_to_dashboard)
         self.screen_dashboard.btn_go_home.clicked.connect(self.go_to_home)
 
+        self.can_thread = CANDataThread()
+        
+        self.can_thread.data_updated.connect(self.screen_dashboard.update_dashboard_data)
+        
+        self.can_thread.start()
+
     def go_to_dashboard(self):
         self.stacked_widget.setCurrentIndex(1)
-        print("Navegou para: Dashboard") 
 
     def go_to_home(self):
         self.stacked_widget.setCurrentIndex(0)
-        print("Navegou para: Home")
+
+    def closeEvent(self, event):
+        print("Encerrando a aplicação e parando as threads...")
+        self.can_thread.stop()
+        event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
