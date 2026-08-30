@@ -1,11 +1,13 @@
 import math
 import os
-from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class MapaWidget(QWidget):
+    velocidade_atualizada = Signal(float)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -257,6 +259,7 @@ class MapaWidget(QWidget):
 
     def mover_carro(self):
         if self.em_pausa:
+            self.velocidade_atualizada.emit(self.velocidade_kmh)
             self.atualizar_mapa()
             return
 
@@ -305,6 +308,7 @@ class MapaWidget(QWidget):
             self.carro_x += (dx / distancia) * self.velocidade
             self.carro_y += (dy / distancia) * self.velocidade
 
+        self.velocidade_atualizada.emit(self.velocidade_kmh)
         self.atualizar_mapa()
 
     def reiniciar_rota(self):
