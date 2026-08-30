@@ -1,26 +1,24 @@
 import math
 import os
-import sys
 from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygon
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class MapaWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-    def __init__(self):
-        super().__init__()
-
+        # Carregamento do Mapa com Fallback caso a imagem não exista
         pasta_script = os.path.dirname(os.path.abspath(__file__))
         caminho_imagem = os.path.join(pasta_script, "mapa_grande.png")
-        self.pixmap_mapa_completo = QPixmap(caminho_imagem)
+
+        if os.path.exists(caminho_imagem):
+            self.pixmap_mapa_completo = QPixmap(caminho_imagem)
+        else:
+            # Cria um mapa fictício escuro caso a imagem 'mapa_grande.png' não esteja presente
+            self.pixmap_mapa_completo = QPixmap(2000, 2000)
+            self.pixmap_mapa_completo.fill(QColor("#1e293b"))
 
         self.rota = [
             (1245, 1641),
@@ -33,12 +31,12 @@ class MapaWidget(QWidget):
             (700, 1011),
             (697, 982),
             (751, 894),
-            (754,522),
-            (1067,525),
-            (1067,357),
-            (1438,358),
-            (1428,1660),
-            (1380,1660),
+            (754, 522),
+            (1067, 525),
+            (1067, 357),
+            (1438, 358),
+            (1428, 1660),
+            (1380, 1660),
         ]
         self.indice_ponto_atual = 1
 
@@ -55,26 +53,22 @@ class MapaWidget(QWidget):
         self.VELOCIDADE_MIN_CURVA_KMH = 12.0
         self.VELOCIDADE_MEDIA_ROTA_KMH = 35.0
 
-        layout_principal = QVBoxLayout()
+        layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(0, 0, 0, 0)
 
         self.rotulo_mapa = QLabel()
-        self.rotulo_mapa.setAlignment(Qt.AlignCenter)
+        self.rotulo_mapa.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_principal.addWidget(self.rotulo_mapa)
 
-        layout_botoes = QHBoxLayout()
-        self.btn_simulacao = QPushButton("Iniciar / Pausar Navegação")
-        layout_botoes.addWidget(self.btn_simulacao)
-
-        layout_principal.addLayout(layout_botoes)
-        self.setLayout(layout_principal)
-
-        self.timer = QTimer()
+        self.timer = QTimer(self)
         self.timer.setInterval(40)
         self.timer.timeout.connect(self.mover_carro)
 
-        self.btn_simulacao.clicked.connect(self.alternar_simulacao)
-
         self.calcular_angulo_inicial()
+        self.timer.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
         self.atualizar_mapa()
 
     def calcular_angulo_inicial(self):
@@ -136,24 +130,30 @@ class MapaWidget(QWidget):
         return dist_texto, instrucao, seta
 
     def atualizar_mapa(self):
-        resultado = QPixmap(800, 480)
-        resultado.fill(Qt.black)
+        w = self.rotulo_mapa.width()
+        h = self.rotulo_mapa.height()
+
+        if w < 10 or h < 10:
+            return
+
+        resultado = QPixmap(w, h)
+        resultado.fill(Qt.GlobalColor.black)
 
         painter = QPainter(resultado)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        carro_tela_x = 400
-        carro_tela_y = 390
+        carro_tela_x = w // 2
+        carro_tela_y = int(h * 0.8)
 
-        # --- 1. RENDERIZAÇÃO DO MAPA E ROTAS ---
+        # 1. RENDERIZAÇÃO DO MAPA E ROTAS
         painter.translate(carro_tela_x, carro_tela_y)
         painter.rotate(-(self.angulo_atual + 90))
         painter.translate(-self.carro_x, -self.carro_y)
 
         painter.drawPixmap(0, 0, self.pixmap_mapa_completo)
 
-        pen_linha = QPen(QColor("darkgreen"), 6, Qt.SolidLine)
+        pen_linha = QPen(QColor("darkgreen"), 6, Qt.PenStyle.SolidLine)
         painter.setPen(pen_linha)
 
         if self.indice_ponto_atual < len(self.rota):
@@ -170,108 +170,89 @@ class MapaWidget(QWidget):
                 self.rota[i + 1][1],
             )
 
-        # --- 2. SETA INDICADORA DO CARRO ---
+        # 2. SETA INDICADORA DO CARRO
         painter.resetTransform()
-
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("lightgreen"))
 
         seta_carro = QPolygon(
             [
-                QPoint(carro_tela_x, carro_tela_y - 22),
-                QPoint(carro_tela_x - 15, carro_tela_y + 14),
-                QPoint(carro_tela_x + 15, carro_tela_y + 14),
+                QPoint(carro_tela_x, carro_tela_y - 20),
+                QPoint(carro_tela_x - 12, carro_tela_y + 12),
+                QPoint(carro_tela_x + 12, carro_tela_y + 12),
             ]
         )
         painter.drawPolygon(seta_carro)
 
-        # --- 3. ELEMENTOS FLUTUANTES DA INTERFACE (HUD) ---
-
-        # 3.1 VELOCÍMETRO (Canto inferior esquerdo)
+        # 3. PAINEL HUD DINÂMICO
+        # 3.1 VELOCÍMETRO
         painter.setBrush(QColor(15, 23, 42, 210))
         painter.setPen(QPen(QColor("lightgreen"), 2))
-        painter.drawRoundedRect(20, 370, 95, 80, 12, 12)
+        painter.drawRoundedRect(15, h - 85, 90, 70, 10, 10)
 
         painter.setPen(QColor("white"))
-        painter.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        painter.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         painter.drawText(
-            20,
-            375,
-            95,
-            40,
-            Qt.AlignCenter,
-            str(int(round(self.velocidade_kmh))),
+            15, h - 85, 90, 35, Qt.AlignmentFlag.AlignCenter, str(int(round(self.velocidade_kmh)))
         )
 
         painter.setPen(QColor("lightgray"))
-        painter.setFont(QFont("Segoe UI", 9, QFont.Bold))
-        painter.drawText(20, 415, 95, 20, Qt.AlignCenter, "KM/H")
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        painter.drawText(15, h - 45, 90, 20, Qt.AlignmentFlag.AlignCenter, "KM/H")
 
-        # 3.2 PLACA DE LIMITE DE VELOCIDADE (Tamanho Reduzido)
-        centro_x, centro_y = 138, 410
-        raio = 20  # Reduzido para ficar em proporção mais harmoniosa
+        # 3.2 PLACA DE LIMITE DE VELOCIDADE
+        centro_x, centro_y = 125, h - 50
+        raio = 18
 
         painter.setBrush(QColor("white"))
         painter.setPen(QPen(QColor(220, 38, 38), 3))
         painter.drawEllipse(QPoint(centro_x, centro_y), raio, raio)
 
         painter.setPen(QColor("black"))
-        painter.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         painter.drawText(
-            centro_x - raio,
-            centro_y - raio,
-            raio * 2,
-            raio * 2,
-            Qt.AlignCenter,
-            "50",
+            centro_x - raio, centro_y - raio, raio * 2, raio * 2, Qt.AlignmentFlag.AlignCenter, "50"
         )
 
-        # 3.3 PAINEL DE ETA (Canto inferior direito)
+        # 3.3 PAINEL DE ETA
+        eta_w, eta_h = min(220, int(w * 0.35)), 70
         painter.setBrush(QColor(15, 23, 42, 210))
         painter.setPen(QPen(QColor(0, 150, 255), 2))
-        painter.drawRoundedRect(520, 370, 260, 80, 12, 12)
+        painter.drawRoundedRect(w - eta_w - 15, h - 85, eta_w, eta_h, 10, 10)
 
         dist_m = self.calcular_distancia_restante()
-        texto_dist = (
-            f"{dist_m/1000:.1f} km" if dist_m >= 1000 else f"{int(dist_m)} m"
-        )
-        tempo_min = max(
-            1, math.ceil((dist_m / 1000) / self.VELOCIDADE_MEDIA_ROTA_KMH * 60)
-        )
+        texto_dist = f"{dist_m/1000:.1f} km" if dist_m >= 1000 else f"{int(dist_m)} m"
+        tempo_min = max(1, math.ceil((dist_m / 1000) / self.VELOCIDADE_MEDIA_ROTA_KMH * 60))
 
         painter.setPen(QColor("white"))
-        painter.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        painter.drawText(
-            535, 380, 230, 25, Qt.AlignLeft, f"Distância: {texto_dist}"
-        )
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        painter.drawText(w - eta_w, h - 78, eta_w - 10, 22, Qt.AlignmentFlag.AlignLeft, f"Dist.: {texto_dist}")
 
         painter.setPen(QColor("lightgreen"))
-        painter.setFont(QFont("Segoe UI", 11))
-        painter.drawText(
-            535, 408, 230, 25, Qt.AlignLeft, f"Chegada em: {tempo_min} min"
-        )
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.drawText(w - eta_w, h - 53, eta_w - 10, 22, Qt.AlignmentFlag.AlignLeft, f"ETA: {tempo_min} min")
 
-        # 3.4 CARTÃO DE PRÓXIMA MANOBRA (Canto superior direito)
+        # 3.4 CARTÃO DE PRÓXIMA MANOBRA
+        man_w, man_h = min(240, int(w * 0.38)), 70
         painter.setBrush(QColor(15, 23, 42, 210))
         painter.setPen(QPen(QColor(255, 165, 0), 2))
-        painter.drawRoundedRect(520, 20, 260, 80, 12, 12)
+        painter.drawRoundedRect(w - man_w - 15, 12, man_w, man_h, 10, 10)
 
         dist_texto, instrucao, seta = self.obter_proxima_manobra()
 
         painter.setPen(QColor(255, 165, 0))
-        painter.setFont(QFont("Segoe UI", 28, QFont.Bold))
-        painter.drawText(530, 25, 50, 70, Qt.AlignCenter, seta)
+        painter.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
+        painter.drawText(w - man_w - 5, 12, 45, man_h, Qt.AlignmentFlag.AlignCenter, seta)
 
         painter.setPen(QColor("white"))
-        painter.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        painter.drawText(585, 30, 185, 25, Qt.AlignLeft, instrucao)
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        painter.drawText(w - man_w + 40, 20, man_w - 50, 20, Qt.AlignmentFlag.AlignLeft, instrucao)
 
         painter.setPen(QColor("lightgray"))
-        painter.setFont(QFont("Segoe UI", 10))
-        painter.drawText(585, 58, 185, 25, Qt.AlignLeft, dist_texto)
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.drawText(w - man_w + 40, 43, man_w - 50, 20, Qt.AlignmentFlag.AlignLeft, dist_texto)
 
         painter.end()
-
         self.rotulo_mapa.setPixmap(resultado)
 
     def mover_carro(self):
@@ -286,35 +267,23 @@ class MapaWidget(QWidget):
         distancia = (dx**2 + dy**2) ** 0.5
 
         e_ultimo_segmento = self.indice_ponto_atual == len(self.rota) - 1
-        vel_minima = (
-            0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
-        )
+        vel_minima = 0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
 
         fator_alvo = min(1.0, distancia / 200.0)
-        velocidade_alvo_kmh = vel_minima + (
-            self.VELOCIDADE_MAX_KMH - vel_minima
-        ) * (fator_alvo**0.8)
+        velocidade_alvo_kmh = vel_minima + (self.VELOCIDADE_MAX_KMH - vel_minima) * (fator_alvo**0.8)
 
         if self.indice_ponto_atual == 1:
             origem_x, origem_y = self.rota[0]
-            dist_origem = (
-                (self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2
-            ) ** 0.5
+            dist_origem = ((self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2) ** 0.5
             fator_origem = min(1.0, dist_origem / 150.0)
             velocidade_alvo_kmh *= fator_origem
 
         if self.velocidade_kmh < velocidade_alvo_kmh:
-            self.velocidade_kmh = min(
-                velocidade_alvo_kmh, self.velocidade_kmh + 0.6
-            )
+            self.velocidade_kmh = min(velocidade_alvo_kmh, self.velocidade_kmh + 0.6)
         elif self.velocidade_kmh > velocidade_alvo_kmh:
-            self.velocidade_kmh = max(
-                velocidade_alvo_kmh, self.velocidade_kmh - 0.9
-            )
+            self.velocidade_kmh = max(velocidade_alvo_kmh, self.velocidade_kmh - 0.9)
 
-        self.velocidade = max(
-            0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8
-        )
+        self.velocidade = max(0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8)
 
         if dx != 0 or dy != 0:
             angulo_alvo = math.degrees(math.atan2(dy, dx))
@@ -345,20 +314,3 @@ class MapaWidget(QWidget):
         self.velocidade_kmh = 0.0
         self.calcular_angulo_inicial()
         self.em_pausa = False
-
-    def alternar_simulacao(self):
-        if self.timer.isActive():
-            self.timer.stop()
-        else:
-            self.timer.start()
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    janela = MapaWidget()
-    janela.setWindowTitle("Multimídia - Módulo de Mapa")
-    janela.resize(800, 480)
-    janela.show()
-
-    sys.exit(app.exec())

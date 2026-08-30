@@ -1,13 +1,59 @@
 import sys
+import time
+
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QCheckBox, QDialog, QFrame
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt
+
+# --- IMPORTAÇÃO DO NÓS DO MAPA DO ARQUIVO janela_mapa.py ---
+from janela_mapa import MapaWidget
 
 
+# ==============================================================================
+# 1. THREAD DE DADOS CAN (SIMULAÇÃO)
+# ==============================================================================
+class CANDataThread(QThread):
+    data_updated = Signal(int, int)
+
+    def __init__(self):
+        super().__init__()
+        self.is_running = True
+
+    def run(self):
+        rpm = 800
+        speed = 0
+
+        while self.is_running:
+            rpm += 150
+            speed += 3
+
+            if rpm > 6000:
+                rpm = 800
+            if speed > 120:
+                speed = 0
+
+            self.data_updated.emit(rpm, speed)
+            time.sleep(0.1)
+
+    def stop(self):
+        self.is_running = False
+        self.wait()
+
+
+# ==============================================================================
+# 2. PAINÉIS E JANELAS SECUNDÁRIAS
+# ==============================================================================
 class ClickableFrame(QFrame):
-    """QFrame customizado para aceitar eventos de clique de mouse."""
     def __init__(self, click_callback, parent=None):
         super().__init__(parent)
         self.click_callback = click_callback
@@ -19,7 +65,6 @@ class ClickableFrame(QFrame):
 
 
 class SettingsDialog(QDialog):
-    """Janela flutuante de configurações/filtros."""
     def __init__(self, car_parts_data, parent=None):
         super().__init__(parent)
         self.car_parts_data = car_parts_data
@@ -57,9 +102,11 @@ class SettingsDialog(QDialog):
 
 
 class SensorPopOverDialog(QDialog):
-    """Janela flutuante para detalhes dos sensores."""
     def __init__(self, part_data, parent=None):
         super().__init__(parent)
+        self.part_data = part_data
+        self.sensor_labels = {}
+
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
         self.setFixedSize(450, 300)
@@ -77,10 +124,12 @@ class SensorPopOverDialog(QDialog):
         sensor_layout = QVBoxLayout(sensor_frame)
         sensor_layout.setContentsMargins(15, 10, 15, 10)
 
-        for sensor_name, value in part_data['sensors']:
+        for sensor_item in part_data['sensors']:
+            sensor_name, value = sensor_item[0], sensor_item[1]
             item_label = QLabel(f"⚙️  {sensor_name}: {value}")
             item_label.setStyleSheet("font-family: Arial; font-size: 10pt; color: black; border: none; background: transparent;")
             sensor_layout.addWidget(item_label)
+            self.sensor_labels[sensor_name] = item_label
 
         sensor_layout.addStretch()
         layout.addWidget(sensor_frame)
@@ -91,7 +140,16 @@ class SensorPopOverDialog(QDialog):
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignCenter)
 
+    def refresh_sensor_values(self):
+        for sensor_item in self.part_data['sensors']:
+            sensor_name, value = sensor_item[0], sensor_item[1]
+            if sensor_name in self.sensor_labels:
+                self.sensor_labels[sensor_name].setText(f"⚙️  {sensor_name}: {value}")
 
+
+# ==============================================================================
+# 3. APLICAÇÃO PRINCIPAL
+# ==============================================================================
 class CarMultimediaApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -104,33 +162,35 @@ class CarMultimediaApp(QMainWindow):
                 "name": "MOTOR E SISTEMAS",
                 "enabled": True,
                 "sensors": [
-                    ("Temp. Arrefecimento", "90°C (Normal)"),
-                    ("Pressão do Óleo", "3.5 bar (Estável)"),
-                    ("Voltagem Bateria", "13.8V (Carregando)")
+                    ["RPM", "800 RPM"],
+                    ["Velocidade", "0 km/h"],
+                    ["Temp. Arrefecimento", "90°C (Normal)"],
+                    ["Pressão do Óleo", "3.5 bar (Estável)"],
+                    ["Voltagem Bateria", "13.8V (Carregando)"]
                 ]
             },
             {
                 "name": "FREIOS E SUSPENSÃO",
                 "enabled": True,
                 "sensors": [
-                    ("Pastilhas Dianteiras", "75% Restante"),
-                    ("Pastilhas Traseiras", "80% Restante"),
-                    ("Alinhamento", "Normal")
+                    ["Pastilhas Dianteiras", "75% Restante"],
+                    ["Pastilhas Traseiras", "80% Restante"],
+                    ["Alinhamento", "Normal"]
                 ]
             },
             {
                 "name": "CHASSI E PNEUS",
                 "enabled": True,
                 "sensors": [
-                    ("Pressão Pneus", "32 PSI (Todos)"),
-                    ("Controle Tração", "Ativo")
+                    ["Pressão Pneus", "32 PSI (Todos)"],
+                    ["Controle Tração", "Ativo"]
                 ]
             }
         ]
 
         self.current_part_index = 0
+        self.active_pop_over = None
 
-        # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
@@ -141,6 +201,11 @@ class CarMultimediaApp(QMainWindow):
         self.create_map_area()
         self.create_bottom_area()
         self.update_car_display()
+
+        # Thread de dados CAN
+        self.can_thread = CANDataThread()
+        self.can_thread.data_updated.connect(self.update_can_data)
+        self.can_thread.start()
 
     def create_top_bar(self):
         top_bar = QWidget()
@@ -160,20 +225,14 @@ class CarMultimediaApp(QMainWindow):
     def create_map_area(self):
         container = QWidget()
         container.setStyleSheet("background-color: white;")
-        
+
         layout = QVBoxLayout(container)
         layout.setContentsMargins(40, 10, 40, 10)
 
-        map_frame = QFrame()
-        map_frame.setStyleSheet("background-color: #45aafa; border: 2px solid #2d8bd6;")
-        
-        map_layout = QVBoxLayout(map_frame)
-        map_label = QLabel("MAPA")
-        map_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        map_label.setStyleSheet("color: white; font-family: Arial; font-size: 16pt; font-weight: bold; border: none;")
-        map_layout.addWidget(map_label)
+        # Instanciação do Widget do Mapa importado de janela_mapa.py
+        self.mapa_widget = MapaWidget()
+        layout.addWidget(self.mapa_widget)
 
-        layout.addWidget(map_frame)
         self.main_layout.addWidget(container, stretch=1)
 
     def create_bottom_area(self):
@@ -239,6 +298,18 @@ class CarMultimediaApp(QMainWindow):
         bottom_layout.addWidget(config_btn)
         self.main_layout.addWidget(bottom_container)
 
+    def update_can_data(self, rpm, speed):
+        for part in self.car_parts_data:
+            if part["name"] == "MOTOR E SISTEMAS":
+                for sensor in part["sensors"]:
+                    if sensor[0] == "RPM":
+                        sensor[1] = f"{rpm} RPM"
+                    elif sensor[0] == "Velocidade":
+                        sensor[1] = f"{speed} km/h"
+
+        if self.active_pop_over and self.active_pop_over.isVisible():
+            self.active_pop_over.refresh_sensor_values()
+
     def get_active_parts(self):
         return [part for part in self.car_parts_data if part["enabled"]]
 
@@ -295,9 +366,15 @@ class CarMultimediaApp(QMainWindow):
             return
 
         part_data = active_parts[self.current_part_index]
-        dialog = SensorPopOverDialog(part_data, self)
-        self._center_dialog(dialog)
-        dialog.exec()
+        self.active_pop_over = SensorPopOverDialog(part_data, self)
+        self._center_dialog(self.active_pop_over)
+        self.active_pop_over.exec()
+        self.active_pop_over = None
+
+    def closeEvent(self, event):
+        self.mapa_widget.timer.stop()
+        self.can_thread.stop()
+        event.accept()
 
 
 if __name__ == "__main__":
