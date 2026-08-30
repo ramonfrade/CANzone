@@ -11,14 +11,16 @@ class MapaWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.modo_escuro = False
+
         # Carregamento do Mapa com Fallback caso a imagem não exista
         pasta_script = os.path.dirname(os.path.abspath(__file__))
         caminho_imagem = os.path.join(pasta_script, "mapa_grande.png")
 
-        if os.path.exists(caminho_imagem):
+        self.imagem_existe = os.path.exists(caminho_imagem)
+        if self.imagem_existe:
             self.pixmap_mapa_completo = QPixmap(caminho_imagem)
         else:
-            # Cria um mapa fictício escuro caso a imagem 'mapa_grande.png' não esteja presente
             self.pixmap_mapa_completo = QPixmap(2000, 2000)
             self.pixmap_mapa_completo.fill(QColor("#1e293b"))
 
@@ -68,6 +70,17 @@ class MapaWidget(QWidget):
         self.timer.timeout.connect(self.mover_carro)
         self.calcular_angulo_inicial()
         self.timer.start()
+
+    def set_modo_escuro(self, ativo: bool):
+        self.modo_escuro = ativo
+        if not self.imagem_existe:
+            cor_fundo = QColor("#0f172a") if self.modo_escuro else QColor("#e2e8f0")
+            self.pixmap_mapa_completo.fill(cor_fundo)
+        self.atualizar_mapa()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.atualizar_mapa()
 
     def calcular_angulo_inicial(self):
             alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
@@ -191,7 +204,8 @@ class MapaWidget(QWidget):
             return
 
         resultado = QPixmap(w, h)
-        resultado.fill(Qt.GlobalColor.black)
+        cor_fundo_canvas = QColor("#090d16") if self.modo_escuro else Qt.GlobalColor.black
+        resultado.fill(cor_fundo_canvas)
 
         painter = QPainter(resultado)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -207,7 +221,8 @@ class MapaWidget(QWidget):
 
         painter.drawPixmap(0, 0, self.pixmap_mapa_completo)
 
-        pen_linha = QPen(QColor("darkgreen"), 6, Qt.PenStyle.SolidLine)
+        cor_linha = QColor("#4ade80") if self.modo_escuro else QColor("darkgreen")
+        pen_linha = QPen(cor_linha, 6, Qt.PenStyle.SolidLine)
         painter.setPen(pen_linha)
 
         if self.indice_ponto_atual < len(self.rota):
@@ -227,7 +242,8 @@ class MapaWidget(QWidget):
         # 2. SETA INDICADORA DO CARRO
         painter.resetTransform()
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("lightgreen"))
+        cor_carro = QColor("#22c55e") if self.modo_escuro else QColor("lightgreen")
+        painter.setBrush(cor_carro)
 
         seta_carro = QPolygon(
             [
@@ -239,9 +255,11 @@ class MapaWidget(QWidget):
         painter.drawPolygon(seta_carro)
 
         # 3. PAINEL HUD DINÂMICO
+        hud_bg = QColor(15, 23, 42, 230) if self.modo_escuro else QColor(15, 23, 42, 210)
+
         # 3.1 VELOCÍMETRO
-        painter.setBrush(QColor(15, 23, 42, 210))
-        painter.setPen(QPen(QColor("lightgreen"), 2))
+        painter.setBrush(hud_bg)
+        painter.setPen(QPen(cor_carro, 2))
         painter.drawRoundedRect(15, h - 85, 90, 70, 10, 10)
 
         painter.setPen(QColor("white"))
@@ -270,7 +288,7 @@ class MapaWidget(QWidget):
 
         # 3.3 PAINEL DE ETA
         eta_w, eta_h = min(220, int(w * 0.35)), 70
-        painter.setBrush(QColor(15, 23, 42, 210))
+        painter.setBrush(hud_bg)
         painter.setPen(QPen(QColor(0, 150, 255), 2))
         painter.drawRoundedRect(w - eta_w - 15, h - 85, eta_w, eta_h, 10, 10)
 
@@ -282,13 +300,13 @@ class MapaWidget(QWidget):
         painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         painter.drawText(w - eta_w, h - 78, eta_w - 10, 22, Qt.AlignmentFlag.AlignLeft, f"Dist.: {texto_dist}")
 
-        painter.setPen(QColor("lightgreen"))
+        painter.setPen(QColor("#4ade80") if self.modo_escuro else QColor("lightgreen"))
         painter.setFont(QFont("Segoe UI", 9))
         painter.drawText(w - eta_w, h - 53, eta_w - 10, 22, Qt.AlignmentFlag.AlignLeft, f"ETA: {tempo_min} min")
 
         # 3.4 CARTÃO DE PRÓXIMA MANOBRA
         man_w, man_h = min(240, int(w * 0.38)), 70
-        painter.setBrush(QColor(15, 23, 42, 210))
+        painter.setBrush(hud_bg)
         painter.setPen(QPen(QColor(255, 165, 0), 2))
         painter.drawRoundedRect(w - man_w - 15, 12, man_w, man_h, 10, 10)
 
