@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# --- IMPORTAÇÃO DO NÓS DO MAPA DO ARQUIVO janela_mapa.py ---
 from janela_mapa import MapaWidget
 
 
@@ -65,27 +64,32 @@ class ClickableFrame(QFrame):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, car_parts_data, parent=None):
+    def __init__(self, car_parts_data, modo_escuro=False, parent=None):
         super().__init__(parent)
         self.car_parts_data = car_parts_data
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
         self.setFixedSize(350, 250)
-        self.setStyleSheet("QDialog { background-color: #f0f0f0; border: 2px solid #45aafa; }")
+
+        bg_color = "#1e293b" if modo_escuro else "#f0f0f0"
+        txt_color = "#ffffff" if modo_escuro else "#000000"
+        border_color = "#45aafa"
+
+        self.setStyleSheet(f"QDialog {{ background-color: {bg_color}; border: 2px solid {border_color}; }}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
 
         title = QLabel("SELECIONE AS PARTES VISÍVEIS:")
-        title.setStyleSheet("font-family: Arial; font-size: 11pt; font-weight: bold; color: black; border: none;")
+        title.setStyleSheet(f"font-family: Arial; font-size: 11pt; font-weight: bold; color: {txt_color}; border: none;")
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.checkbox_items = []
         for part in self.car_parts_data:
             chk = QCheckBox(part["name"])
             chk.setChecked(part["enabled"])
-            chk.setStyleSheet("font-family: Arial; font-size: 10pt; color: black; border: none; padding-left: 20px;")
+            chk.setStyleSheet(f"font-family: Arial; font-size: 10pt; color: {txt_color}; border: none; padding-left: 20px;")
             layout.addWidget(chk)
             self.checkbox_items.append((part, chk))
 
@@ -102,7 +106,7 @@ class SettingsDialog(QDialog):
 
 
 class SensorPopOverDialog(QDialog):
-    def __init__(self, part_data, parent=None):
+    def __init__(self, part_data, modo_escuro=False, parent=None):
         super().__init__(parent)
         self.part_data = part_data
         self.sensor_labels = {}
@@ -110,24 +114,31 @@ class SensorPopOverDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
         self.setFixedSize(450, 300)
-        self.setStyleSheet("QDialog { background-color: #f0f0f0; border: 2px solid #45aafa; }")
+
+        bg_color = "#1e293b" if modo_escuro else "#f0f0f0"
+        frame_bg = "#0f172a" if modo_escuro else "#ffffff"
+        txt_color = "#ffffff" if modo_escuro else "#000000"
+        border_color = "#45aafa"
+        frame_border = "#334155" if modo_escuro else "#cccccc"
+
+        self.setStyleSheet(f"QDialog {{ background-color: {bg_color}; border: 2px solid {border_color}; }}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
 
         title = QLabel(f"SENSORES: {part_data['name']}")
-        title.setStyleSheet("font-family: Arial; font-size: 12pt; font-weight: bold; color: black; border: none;")
+        title.setStyleSheet(f"font-family: Arial; font-size: 12pt; font-weight: bold; color: {txt_color}; border: none;")
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
         sensor_frame = QFrame()
-        sensor_frame.setStyleSheet("background-color: white; border: 1px solid #cccccc;")
+        sensor_frame.setStyleSheet(f"background-color: {frame_bg}; border: 1px solid {frame_border};")
         sensor_layout = QVBoxLayout(sensor_frame)
         sensor_layout.setContentsMargins(15, 10, 15, 10)
 
         for sensor_item in part_data['sensors']:
             sensor_name, value = sensor_item[0], sensor_item[1]
             item_label = QLabel(f"⚙️  {sensor_name}: {value}")
-            item_label.setStyleSheet("font-family: Arial; font-size: 10pt; color: black; border: none; background: transparent;")
+            item_label.setStyleSheet(f"font-family: Arial; font-size: 10pt; color: {txt_color}; border: none; background: transparent;")
             sensor_layout.addWidget(item_label)
             self.sensor_labels[sensor_name] = item_label
 
@@ -155,7 +166,8 @@ class CarMultimediaApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Multimídia do Carro - Filtro de Partes")
         self.resize(800, 480)
-        self.setStyleSheet("background-color: white;")
+
+        self.modo_escuro = False
 
         self.car_parts_data = [
             {
@@ -200,6 +212,8 @@ class CarMultimediaApp(QMainWindow):
         self.create_top_bar()
         self.create_map_area()
         self.create_bottom_area()
+
+        self.aplicar_tema()
         self.update_car_display()
 
         # Thread de dados CAN
@@ -208,39 +222,42 @@ class CarMultimediaApp(QMainWindow):
         self.can_thread.start()
 
     def create_top_bar(self):
-        top_bar = QWidget()
-        top_bar.setFixedHeight(30)
-        top_bar.setStyleSheet("background-color: #666666;")
+        self.top_bar = QWidget()
+        self.top_bar.setFixedHeight(35)
 
-        layout = QHBoxLayout(top_bar)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout = QHBoxLayout(self.top_bar)
+        layout.setContentsMargins(15, 0, 15, 0)
+
+        # Botão para alternar tema
+        self.btn_tema = QPushButton("🌙 Modo Escuro")
+        self.btn_tema.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tema.clicked.connect(self.alternar_tema)
+        layout.addWidget(self.btn_tema)
+
         layout.addStretch()
 
-        status_label = QLabel("Bluetooth: ON   |   Wi-Fi: Conectado   |   Bateria: 85%")
-        status_label.setStyleSheet("color: white; font-family: Arial; font-size: 10pt; font-weight: bold;")
-        layout.addWidget(status_label)
+        self.status_label = QLabel("Bluetooth: ON   |   Wi-Fi: Conectado   |   Bateria: 85%")
+        self.status_label.setStyleSheet("color: white; font-family: Arial; font-size: 10pt; font-weight: bold;")
+        layout.addWidget(self.status_label)
 
-        self.main_layout.addWidget(top_bar)
+        self.main_layout.addWidget(self.top_bar)
 
     def create_map_area(self):
-        container = QWidget()
-        container.setStyleSheet("background-color: white;")
+        self.map_container = QWidget()
 
-        layout = QVBoxLayout(container)
+        layout = QVBoxLayout(self.map_container)
         layout.setContentsMargins(40, 10, 40, 10)
 
-        # Instanciação do Widget do Mapa importado de janela_mapa.py
         self.mapa_widget = MapaWidget()
         layout.addWidget(self.mapa_widget)
 
-        self.main_layout.addWidget(container, stretch=1)
+        self.main_layout.addWidget(self.map_container, stretch=1)
 
     def create_bottom_area(self):
-        bottom_container = QWidget()
-        bottom_container.setFixedHeight(100)
-        bottom_container.setStyleSheet("background-color: white;")
+        self.bottom_container = QWidget()
+        self.bottom_container.setFixedHeight(100)
 
-        bottom_layout = QHBoxLayout(bottom_container)
+        bottom_layout = QHBoxLayout(self.bottom_container)
         bottom_layout.setContentsMargins(40, 0, 40, 20)
         bottom_layout.setSpacing(10)
 
@@ -250,16 +267,14 @@ class CarMultimediaApp(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
 
-        prev_btn = QPushButton("◀")
-        prev_btn.setFixedWidth(40)
-        prev_btn.setFixedHeight(80)
-        prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        prev_btn.setStyleSheet("font-size: 20pt; color: #555555; background-color: white; border: none;")
-        prev_btn.clicked.connect(self.prev_part)
-        left_layout.addWidget(prev_btn)
+        self.prev_btn = QPushButton("◀")
+        self.prev_btn.setFixedWidth(40)
+        self.prev_btn.setFixedHeight(80)
+        self.prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_btn.clicked.connect(self.prev_part)
+        left_layout.addWidget(self.prev_btn)
 
         self.car_view_frame = ClickableFrame(self.open_sensor_pop_over)
-        self.car_view_frame.setStyleSheet("background-color: #777777; border: 1px solid #555555;")
         self.car_view_frame.setCursor(Qt.CursorShape.PointingHandCursor)
 
         frame_layout = QVBoxLayout(self.car_view_frame)
@@ -277,26 +292,71 @@ class CarMultimediaApp(QMainWindow):
 
         left_layout.addWidget(self.car_view_frame, stretch=1)
 
-        next_btn = QPushButton("▶")
-        next_btn.setFixedWidth(40)
-        next_btn.setFixedHeight(80)
-        next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        next_btn.setStyleSheet("font-size: 20pt; color: #555555; background-color: white; border: none;")
-        next_btn.clicked.connect(self.next_part)
-        left_layout.addWidget(next_btn)
+        self.next_btn = QPushButton("▶")
+        self.next_btn.setFixedWidth(40)
+        self.next_btn.setFixedHeight(80)
+        self.next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.next_btn.clicked.connect(self.next_part)
+        left_layout.addWidget(self.next_btn)
 
         bottom_layout.addWidget(left_panel, stretch=1)
 
         # Painel Direito
-        config_btn = QPushButton("⚙️ Filtrar\nPartes")
-        config_btn.setFixedWidth(150)
-        config_btn.setFixedHeight(80)
-        config_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        config_btn.setStyleSheet("font-family: Arial; font-size: 10pt; font-weight: bold; background-color: #e0e0e0; color: #333333; border: 1px solid #b0b0b0;")
-        config_btn.clicked.connect(self.open_settings_window)
+        self.config_btn = QPushButton("⚙️ Filtrar\nPartes")
+        self.config_btn.setFixedWidth(150)
+        self.config_btn.setFixedHeight(80)
+        self.config_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.config_btn.clicked.connect(self.open_settings_window)
 
-        bottom_layout.addWidget(config_btn)
-        self.main_layout.addWidget(bottom_container)
+        bottom_layout.addWidget(self.config_btn)
+        self.main_layout.addWidget(self.bottom_container)
+
+    def alternar_tema(self):
+        self.modo_escuro = not self.modo_escuro
+        self.aplicar_tema()
+
+    def aplicar_tema(self):
+        if self.modo_escuro:
+            bg_main = "#0f172a"
+            bg_top = "#1e293b"
+            bg_bottom = "#0f172a"
+            btn_bg = "#1e293b"
+            btn_fg = "#f8fafc"
+            border_col = "#334155"
+            car_frame_bg = "#1e293b"
+
+            self.btn_tema.setText("☀️ Modo Claro")
+            self.btn_tema.setStyleSheet(
+                "background-color: #334155; color: #f8fafc; border: 1px solid #475569; "
+                "padding: 4px 8px; border-radius: 5px; font-weight: bold;"
+            )
+        else:
+            bg_main = "#ffffff"
+            bg_top = "#666666"
+            bg_bottom = "#ffffff"
+            btn_bg = "#e0e0e0"
+            btn_fg = "#333333"
+            border_col = "#b0b0b0"
+            car_frame_bg = "#777777"
+
+            self.btn_tema.setText("🌙 Modo Escuro")
+            self.btn_tema.setStyleSheet(
+                "background-color: #e0e0e0; color: #333333; border: 1px solid #b0b0b0; "
+                "padding: 4px 8px; border-radius: 5px; font-weight: bold;"
+            )
+
+        self.setStyleSheet(f"background-color: {bg_main};")
+        self.top_bar.setStyleSheet(f"background-color: {bg_top};")
+        self.map_container.setStyleSheet(f"background-color: {bg_main};")
+        self.bottom_container.setStyleSheet(f"background-color: {bg_bottom};")
+
+        self.prev_btn.setStyleSheet(f"font-size: 20pt; color: {btn_fg}; background-color: {bg_bottom}; border: none;")
+        self.next_btn.setStyleSheet(f"font-size: 20pt; color: {btn_fg}; background-color: {bg_bottom}; border: none;")
+
+        self.car_view_frame.setStyleSheet(f"background-color: {car_frame_bg}; border: 1px solid {border_col};")
+        self.config_btn.setStyleSheet(f"font-family: Arial; font-size: 10pt; font-weight: bold; background-color: {btn_bg}; color: {btn_fg}; border: 1px solid {border_col};")
+
+        self.mapa_widget.set_modo_escuro(self.modo_escuro)
 
     def update_can_data(self, rpm, speed):
         for part in self.car_parts_data:
@@ -355,7 +415,7 @@ class CarMultimediaApp(QMainWindow):
         dialog.move(x, y)
 
     def open_settings_window(self):
-        dialog = SettingsDialog(self.car_parts_data, self)
+        dialog = SettingsDialog(self.car_parts_data, modo_escuro=self.modo_escuro, parent=self)
         self._center_dialog(dialog)
         if dialog.exec():
             self.update_car_display()
@@ -366,7 +426,7 @@ class CarMultimediaApp(QMainWindow):
             return
 
         part_data = active_parts[self.current_part_index]
-        self.active_pop_over = SensorPopOverDialog(part_data, self)
+        self.active_pop_over = SensorPopOverDialog(part_data, modo_escuro=self.modo_escuro, parent=self)
         self._center_dialog(self.active_pop_over)
         self.active_pop_over.exec()
         self.active_pop_over = None
