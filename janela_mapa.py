@@ -1,11 +1,13 @@
 import math
 import os
-from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class MapaWidget(QWidget):
+    velocidade_atualizada = Signal(float)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -293,6 +295,60 @@ class MapaWidget(QWidget):
 
         painter.end()
         self.rotulo_mapa.setPixmap(resultado)
+
+    def mover_carro(self):
+        if self.em_pausa:
+            self.velocidade_atualizada.emit(self.velocidade_kmh)
+            self.atualizar_mapa()
+            return
+
+        alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
+
+        dx = alvo_x - self.carro_x
+        dy = alvo_y - self.carro_y
+        distancia = (dx**2 + dy**2) ** 0.5
+
+        e_ultimo_segmento = self.indice_ponto_atual == len(self.rota) - 1
+        vel_minima = 0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
+
+        fator_alvo = min(1.0, distancia / 200.0)
+        velocidade_alvo_kmh = vel_minima + (self.VELOCIDADE_MAX_KMH - vel_minima) * (fator_alvo**0.8)
+
+        if self.indice_ponto_atual == 1:
+            origem_x, origem_y = self.rota[0]
+            dist_origem = ((self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2) ** 0.5
+            fator_origem = min(1.0, dist_origem / 150.0)
+            velocidade_alvo_kmh *= fator_origem
+
+        if self.velocidade_kmh < velocidade_alvo_kmh:
+            self.velocidade_kmh = min(velocidade_alvo_kmh, self.velocidade_kmh + 0.6)
+        elif self.velocidade_kmh > velocidade_alvo_kmh:
+            self.velocidade_kmh = max(velocidade_alvo_kmh, self.velocidade_kmh - 0.9)
+
+        self.velocidade = max(0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8)
+
+        if dx != 0 or dy != 0:
+            angulo_alvo = math.degrees(math.atan2(dy, dx))
+            diferenca = (angulo_alvo - self.angulo_atual + 180) % 360 - 180
+            self.angulo_atual += diferenca * 0.10
+
+        if distancia < max(1.0, self.velocidade):
+            self.carro_x = float(alvo_x)
+            self.carro_y = float(alvo_y)
+
+            if e_ultimo_segmento:
+                self.velocidade_kmh = 0.0
+                self.velocidade = 0.0
+                self.em_pausa = True
+                QTimer.singleShot(2000, self.reiniciar_rota)
+            else:
+                self.indice_ponto_atual += 1
+        else:
+            self.carro_x += (dx / distancia) * self.velocidade
+            self.carro_y += (dy / distancia) * self.velocidade
+
+        self.velocidade_atualizada.emit(self.velocidade_kmh)
+        self.atualizar_mapa()
 
     def reiniciar_rota(self):
         self.indice_ponto_atual = 1

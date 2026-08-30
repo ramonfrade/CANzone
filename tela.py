@@ -1,7 +1,6 @@
 import sys
-import time
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,40 +17,38 @@ from PySide6.QtWidgets import (
 # --- IMPORTAÇÃO DO NÓS DO MAPA DO ARQUIVO janela_mapa.py ---
 from janela_mapa import MapaWidget
 
+# --- TELEMETRIA (CAN real ou simulador) ---
+from telemetry.telemetry import initialize_system
 
-# ==============================================================================
-# 1. THREAD DE DADOS CAN (SIMULAÇÃO)
-# ==============================================================================
-class CANDataThread(QThread):
-    data_updated = Signal(int, int)
 
-    def __init__(self):
-        super().__init__()
-        self.is_running = True
+class SignalBridge(QObject):
+    """
+    Ponte de comunicação segura.
+    Converte o callback bruto da thread (Python padrão)
+    em um Sinal do Qt (Thread-Safe) para atualizar a UI.
+    """
+    data_received = Signal(dict)
 
-    def run(self):
-        rpm = 800
-        speed = 0
+    def callback_from_thread(self, data: dict):
+        self.data_received.emit(data)
 
-        while self.is_running:
-            rpm += 150
-            speed += 3
 
-            if rpm > 6000:
-                rpm = 800
-            if speed > 120:
-                speed = 0
-
-            self.data_updated.emit(rpm, speed)
-            time.sleep(0.1)
-
-    def stop(self):
-        self.is_running = False
-        self.wait()
+def start_telemetry(window):
+    """
+    Inicia o provider (CAN real ou simulador) e conecta os dados
+    recebidos ao dashboard de forma thread-safe (via SignalBridge).
+    Retorna o provider para que a entrada garanta o desligamento limpo.
+    """
+    bridge = SignalBridge()
+    data_provider = initialize_system()
+    data_provider.insert_callback(bridge.callback_from_thread)
+    bridge.data_received.connect(window.set_sensor_data)
+    data_provider.start()
+    return data_provider
 
 
 # ==============================================================================
-# 2. PAINÉIS E JANELAS SECUNDÁRIAS
+# PAINÉIS E JANELAS SECUNDÁRIAS
 # ==============================================================================
 class ClickableFrame(QFrame):
     def __init__(self, click_callback, parent=None):
@@ -202,11 +199,6 @@ class CarMultimediaApp(QMainWindow):
         self.create_bottom_area()
         self.update_car_display()
 
-        # Thread de dados CAN
-        self.can_thread = CANDataThread()
-        self.can_thread.data_updated.connect(self.update_can_data)
-        self.can_thread.start()
-
     def create_top_bar(self):
         top_bar = QWidget()
         top_bar.setFixedHeight(30)
@@ -230,7 +222,9 @@ class CarMultimediaApp(QMainWindow):
         layout.setContentsMargins(40, 10, 40, 10)
 
         # Instanciação do Widget do Mapa importado de janela_mapa.py
+        # A velocidade simulada do mapa alimenta o sensor "Velocidade" do dashboard
         self.mapa_widget = MapaWidget()
+        self.mapa_widget.velocidade_atualizada.connect(self.set_velocidade)
         layout.addWidget(self.mapa_widget)
 
         self.main_layout.addWidget(container, stretch=1)
@@ -298,14 +292,34 @@ class CarMultimediaApp(QMainWindow):
         bottom_layout.addWidget(config_btn)
         self.main_layout.addWidget(bottom_container)
 
-    def update_can_data(self, rpm, speed):
+    @Slot(dict)
+    def set_sensor_data(self, data: dict):
+        """
+        Atualiza RPM e Temperatura a partir da telemetria (CAN real ou
+        simulador). A Velocidade vem do mapa via set_velocidade —
+        então cada sensor tem um único escritor, sem conflito.
+        """
         for part in self.car_parts_data:
             if part["name"] == "MOTOR E SISTEMAS":
                 for sensor in part["sensors"]:
                     if sensor[0] == "RPM":
-                        sensor[1] = f"{rpm} RPM"
-                    elif sensor[0] == "Velocidade":
-                        sensor[1] = f"{speed} km/h"
+                        sensor[1] = f"{data.get('rpm', 0)} RPM"
+                    elif sensor[0] == "Temp. Arrefecimento":
+                        sensor[1] = f"{data.get('temp', 0.0)}°C"
+
+        if self.active_pop_over and self.active_pop_over.isVisible():
+            self.active_pop_over.refresh_sensor_values()
+
+    @Slot(float)
+    def set_velocidade(self, velocidade_kmh):
+        """
+        Atualiza o sensor de Velocidade a partir da simulação do mapa (GPS).
+        """
+        for part in self.car_parts_data:
+            if part["name"] == "MOTOR E SISTEMAS":
+                for sensor in part["sensors"]:
+                    if sensor[0] == "Velocidade":
+                        sensor[1] = f"{velocidade_kmh:.0f} km/h"
 
         if self.active_pop_over and self.active_pop_over.isVisible():
             self.active_pop_over.refresh_sensor_values()
@@ -373,12 +387,14 @@ class CarMultimediaApp(QMainWindow):
 
     def closeEvent(self, event):
         self.mapa_widget.timer.stop()
-        self.can_thread.stop()
         event.accept()
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = CarMultimediaApp()
+    data_provider = start_telemetry(window)
+    app.aboutToQuit.connect(data_provider.stop)
+
     window.show()
     sys.exit(app.exec())
