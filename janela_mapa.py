@@ -43,6 +43,16 @@ class MapaWidget(QWidget):
                 
         self.indice_ponto_atual = 1
 
+        self.angulo_atual = 0.0
+        self.velocidade_kmh = 0.0
+        self.velocidade = 0.0
+        self.em_pausa = False
+
+        # Parâmetros de navegação
+        self.VELOCIDADE_MAX_KMH = 45.0
+        self.VELOCIDADE_MIN_CURVA_KMH = 12.0
+        self.VELOCIDADE_MEDIA_ROTA_KMH = 35.0
+
         self.carro_x = float(self.rota[0][0])
         self.carro_y = float(self.rota[0][1])
 
@@ -56,6 +66,9 @@ class MapaWidget(QWidget):
         self.timer = QTimer(self)
         self.timer.setInterval(40)
         self.timer.timeout.connect(self.mover_carro)
+        self.calcular_angulo_inicial()
+        self.timer.start()
+
     def calcular_angulo_inicial(self):
             alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
             dx = alvo_x - self.carro_x

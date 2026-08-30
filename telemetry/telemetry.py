@@ -48,9 +48,6 @@ class SimProvider(CanProvider):
         self.VELOCIDADE_MIN_CURVA_KMH = 12.0
         self.VELOCIDADE_MEDIA_ROTA_KMH = 35.0
 
-        self.calcular_angulo_inicial()
-        self.timer.start()
-
     def start(self):
         self.sim_running = True
         self.thread = threading.Thread(target=self._sim_loop, daemon=True)
