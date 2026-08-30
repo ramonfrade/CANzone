@@ -1,10 +1,10 @@
 # import the library
-import can
+import can, math
 from abc import ABC, abstractmethod
 import time
 import threading
 import random
-
+from PySide6.QtCore import QTimer
 
 class CanProvider:
     '''classe abstrata de interface CAN, SimProvider -> CanProvider ou RealProvider -> CanProvider'''
@@ -38,6 +38,19 @@ class SimProvider(CanProvider):
         self.sim_running = False
         self.thread = None
 
+        self.angulo_atual = 0.0
+        self.velocidade_kmh = 0.0
+        self.velocidade = 0.0
+        self.em_pausa = False
+
+        # Parâmetros de navegação
+        self.VELOCIDADE_MAX_KMH = 45.0
+        self.VELOCIDADE_MIN_CURVA_KMH = 12.0
+        self.VELOCIDADE_MEDIA_ROTA_KMH = 35.0
+
+        self.calcular_angulo_inicial()
+        self.timer.start()
+
     def start(self):
         self.sim_running = True
         self.thread = threading.Thread(target=self._sim_loop, daemon=True)
@@ -50,7 +63,6 @@ class SimProvider(CanProvider):
             self.thread.join()
             print('Simulação terminada.')
 
-        
     def _sim_loop(self):
         speed_kmh = 0
         rpm = 10

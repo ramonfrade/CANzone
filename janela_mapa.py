@@ -21,37 +21,28 @@ class MapaWidget(QWidget):
             self.pixmap_mapa_completo.fill(QColor("#1e293b"))
 
         self.rota = [
-            (1245, 1641),
-            (1156, 1641),
-            (1156, 1439),
-            (938, 1445),
-            (938, 1105),
-            (690, 1083),
-            (690, 1032),
-            (700, 1011),
-            (697, 982),
-            (751, 894),
-            (754, 522),
-            (1067, 525),
-            (1067, 357),
-            (1438, 358),
-            (1428, 1660),
-            (1380, 1660),
-        ]
+                            (1245, 1641),
+                            (1156, 1641),
+                            (1156, 1439),
+                            (938, 1445),
+                            (938, 1105),
+                            (690, 1083),
+                            (690, 1032),
+                            (700, 1011),
+                            (697, 982),
+                            (751, 894),
+                            (754, 522),
+                            (1067, 525),
+                            (1067, 357),
+                            (1438, 358),
+                            (1428, 1660),
+                            (1380, 1660),
+                        ]
+                
         self.indice_ponto_atual = 1
 
         self.carro_x = float(self.rota[0][0])
         self.carro_y = float(self.rota[0][1])
-
-        self.angulo_atual = 0.0
-        self.velocidade_kmh = 0.0
-        self.velocidade = 0.0
-        self.em_pausa = False
-
-        # Parâmetros de navegação
-        self.VELOCIDADE_MAX_KMH = 45.0
-        self.VELOCIDADE_MIN_CURVA_KMH = 12.0
-        self.VELOCIDADE_MEDIA_ROTA_KMH = 35.0
 
         layout_principal = QVBoxLayout(self)
         layout_principal.setContentsMargins(0, 0, 0, 0)
@@ -63,21 +54,13 @@ class MapaWidget(QWidget):
         self.timer = QTimer(self)
         self.timer.setInterval(40)
         self.timer.timeout.connect(self.mover_carro)
-
-        self.calcular_angulo_inicial()
-        self.timer.start()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.atualizar_mapa()
-
     def calcular_angulo_inicial(self):
-        alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
-        dx = alvo_x - self.carro_x
-        dy = alvo_y - self.carro_y
-        if dx != 0 or dy != 0:
-            self.angulo_atual = math.degrees(math.atan2(dy, dx))
-
+            alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
+            dx = alvo_x - self.carro_x
+            dy = alvo_y - self.carro_y
+            if dx != 0 or dy != 0:
+                self.angulo_atual = math.degrees(math.atan2(dy, dx))
+    
     def calcular_distancia_restante(self):
         if self.indice_ponto_atual >= len(self.rota):
             return 0.0
@@ -96,6 +79,62 @@ class MapaWidget(QWidget):
             ) ** 0.5
 
         return dist_restante_pixels * 1.5
+
+    def mover_carro(self):
+        if self.em_pausa:
+            self.atualizar_mapa()
+            return
+
+        alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
+
+        dx = alvo_x - self.carro_x
+        dy = alvo_y - self.carro_y
+        distancia = (dx**2 + dy**2) ** 0.5
+
+        e_ultimo_segmento = self.indice_ponto_atual == len(self.rota) - 1
+        vel_minima = 0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
+
+        fator_alvo = min(1.0, distancia / 200.0)
+        velocidade_alvo_kmh = vel_minima + (self.VELOCIDADE_MAX_KMH - vel_minima) * (fator_alvo**0.8)
+
+        if self.indice_ponto_atual == 1:
+            origem_x, origem_y = self.rota[0]
+            dist_origem = ((self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2) ** 0.5
+            fator_origem = min(1.0, dist_origem / 150.0)
+            velocidade_alvo_kmh *= fator_origem
+
+        if self.velocidade_kmh < velocidade_alvo_kmh:
+            self.velocidade_kmh = min(velocidade_alvo_kmh, self.velocidade_kmh + 0.6)
+        elif self.velocidade_kmh > velocidade_alvo_kmh:
+            self.velocidade_kmh = max(velocidade_alvo_kmh, self.velocidade_kmh - 0.9)
+
+        self.velocidade = max(0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8)
+
+        if dx != 0 or dy != 0:
+            angulo_alvo = math.degrees(math.atan2(dy, dx))
+            diferenca = (angulo_alvo - self.angulo_atual + 180) % 360 - 180
+            self.angulo_atual += diferenca * 0.10
+
+        if distancia < max(1.0, self.velocidade):
+            self.carro_x = float(alvo_x)
+            self.carro_y = float(alvo_y)
+
+            if e_ultimo_segmento:
+                self.velocidade_kmh = 0.0
+                self.velocidade = 0.0
+                self.em_pausa = True
+                QTimer.singleShot(2000, self.reiniciar_rota)
+            else:
+                self.indice_ponto_atual += 1
+        else:
+            self.carro_x += (dx / distancia) * self.velocidade
+            self.carro_y += (dy / distancia) * self.velocidade
+
+        self.atualizar_mapa()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.atualizar_mapa()
 
     def obter_proxima_manobra(self):
         if self.indice_ponto_atual >= len(self.rota) - 1:
@@ -254,58 +293,6 @@ class MapaWidget(QWidget):
 
         painter.end()
         self.rotulo_mapa.setPixmap(resultado)
-
-    def mover_carro(self):
-        if self.em_pausa:
-            self.atualizar_mapa()
-            return
-
-        alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
-
-        dx = alvo_x - self.carro_x
-        dy = alvo_y - self.carro_y
-        distancia = (dx**2 + dy**2) ** 0.5
-
-        e_ultimo_segmento = self.indice_ponto_atual == len(self.rota) - 1
-        vel_minima = 0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
-
-        fator_alvo = min(1.0, distancia / 200.0)
-        velocidade_alvo_kmh = vel_minima + (self.VELOCIDADE_MAX_KMH - vel_minima) * (fator_alvo**0.8)
-
-        if self.indice_ponto_atual == 1:
-            origem_x, origem_y = self.rota[0]
-            dist_origem = ((self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2) ** 0.5
-            fator_origem = min(1.0, dist_origem / 150.0)
-            velocidade_alvo_kmh *= fator_origem
-
-        if self.velocidade_kmh < velocidade_alvo_kmh:
-            self.velocidade_kmh = min(velocidade_alvo_kmh, self.velocidade_kmh + 0.6)
-        elif self.velocidade_kmh > velocidade_alvo_kmh:
-            self.velocidade_kmh = max(velocidade_alvo_kmh, self.velocidade_kmh - 0.9)
-
-        self.velocidade = max(0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8)
-
-        if dx != 0 or dy != 0:
-            angulo_alvo = math.degrees(math.atan2(dy, dx))
-            diferenca = (angulo_alvo - self.angulo_atual + 180) % 360 - 180
-            self.angulo_atual += diferenca * 0.10
-
-        if distancia < max(1.0, self.velocidade):
-            self.carro_x = float(alvo_x)
-            self.carro_y = float(alvo_y)
-
-            if e_ultimo_segmento:
-                self.velocidade_kmh = 0.0
-                self.velocidade = 0.0
-                self.em_pausa = True
-                QTimer.singleShot(2000, self.reiniciar_rota)
-            else:
-                self.indice_ponto_atual += 1
-        else:
-            self.carro_x += (dx / distancia) * self.velocidade
-            self.carro_y += (dy / distancia) * self.velocidade
-
-        self.atualizar_mapa()
 
     def reiniciar_rota(self):
         self.indice_ponto_atual = 1
