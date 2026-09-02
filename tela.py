@@ -1,6 +1,10 @@
+import os
 import sys
+import json
+import time
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRectF, Qt, Signal, Slot, QTimer
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,6 +22,102 @@ from janela_mapa import MapaWidget
 
 # --- TELEMETRIA (CAN real ou simulador) ---
 from telemetry.telemetry import initialize_system
+
+
+PIN_CENTERS = {
+    1: (70.0, 53.0),
+    2: (124.0, 53.0),
+    3: (177.0, 53.0),
+    4: (231.0, 53.0),
+    5: (284.0, 53.0),
+    6: (337.5, 53.0),
+    7: (391.0, 53.0),
+    8: (444.0, 53.0),
+    9: (70.0, 131.5),
+    10: (124.0, 131.5),
+    11: (177.0, 131.5),
+    12: (231.0, 131.5),
+    13: (284.0, 131.5),
+    14: (337.5, 131.5),
+    15: (391.0, 131.5),
+    16: (444.0, 131.5),
+}
+
+
+class OBD2Widget(QWidget):
+    """
+    Widget que renderiza o ícone do conector OBD-II e anima (pisca)
+    os pinos ativos fornecidos pela telemetria CAN.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(210, 80)
+
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", "obd2.png")
+        self.pixmap = QPixmap(icon_path)
+
+        self.active_pins = []
+        self.blink_state = True
+
+        # Timer para animação de piscar dos pinos ativos
+        self.timer = QTimer(self)
+        self.timer.setInterval(220)
+        self.timer.timeout.connect(self._toggle_blink)
+        self.timer.start()
+
+    def _toggle_blink(self):
+        self.blink_state = not self.blink_state
+        self.update()
+
+    def set_active_pins(self, pins: list[int]):
+        self.active_pins = list(pins) if pins else []
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        if self.pixmap.isNull():
+            return
+
+        w = self.width()
+        h = self.height()
+
+        orig_w = 514.0
+        orig_h = 192.0
+
+        scale = min(w / orig_w, h / orig_h)
+        target_w = orig_w * scale
+        target_h = orig_h * scale
+        offset_x = (w - target_w) / 2.0
+        offset_y = (h - target_h) / 2.0
+
+        target_rect = QRectF(offset_x, offset_y, target_w, target_h)
+        painter.drawPixmap(target_rect.toRect(), self.pixmap)
+
+        if self.active_pins:
+            for pin in self.active_pins:
+                if pin not in PIN_CENTERS:
+                    continue
+                orig_cx, orig_cy = PIN_CENTERS[pin]
+                cx = offset_x + orig_cx * scale
+                cy = offset_y + orig_cy * scale
+                pin_w = 32.0 * scale
+                pin_h = 50.0 * scale
+                pin_rect = QRectF(cx - pin_w / 2.0, cy - pin_h / 2.0, pin_w, pin_h)
+
+                if self.blink_state:
+                    glow_color = QColor(0, 240, 255, 230)
+                    border_color = QColor(255, 255, 255, 255)
+                    painter.setBrush(QBrush(glow_color))
+                    painter.setPen(QPen(border_color, 1.5))
+                    painter.drawRoundedRect(pin_rect, 2.0, 2.0)
+                else:
+                    dim_color = QColor(0, 180, 216, 70)
+                    painter.setBrush(QBrush(dim_color))
+                    painter.setPen(QPen(QColor(0, 180, 216, 110), 1.0))
+                    painter.drawRoundedRect(pin_rect, 2.0, 2.0)
 
 
 class SignalBridge(QObject):
@@ -103,56 +203,137 @@ class SettingsDialog(QDialog):
 
 
 class SensorPopOverDialog(QDialog):
-    def __init__(self, part_data, modo_escuro=False, parent=None):
+    def __init__(self, part_data, initial_telemetry=None, modo_escuro=False, parent=None):
         super().__init__(parent)
         self.part_data = part_data
         self.sensor_labels = {}
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
-        self.setFixedSize(450, 300)
+        self.setFixedSize(540, 420)
 
-        bg_color = "#1e293b" if modo_escuro else "#f0f0f0"
+        bg_color = "#1e293b" if modo_escuro else "#f8fafc"
         frame_bg = "#0f172a" if modo_escuro else "#ffffff"
-        txt_color = "#ffffff" if modo_escuro else "#000000"
-        border_color = "#45aafa"
-        frame_border = "#334155" if modo_escuro else "#cccccc"
+        txt_color = "#f8fafc" if modo_escuro else "#0f172a"
+        subtxt_color = "#94a3b8" if modo_escuro else "#64748b"
+        border_color = "#38bdf8" if modo_escuro else "#0284c7"
+        frame_border = "#334155" if modo_escuro else "#cbd5e1"
+        obd_bg = "#0b1120" if modo_escuro else "#f1f5f9"
+        hex_bg = "#030712"
+        hex_text_color = "#38bdf8"
 
-        self.setStyleSheet(f"QDialog {{ background-color: {bg_color}; border: 2px solid {border_color}; }}")
+        self.setStyleSheet(f"QDialog {{ background-color: {bg_color}; border: 2px solid {border_color}; border-radius: 8px; }}")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
 
         title = QLabel(f"SENSORES: {part_data['name']}")
-        title.setStyleSheet(f"font-family: Arial; font-size: 12pt; font-weight: bold; color: {txt_color}; border: none;")
+        title.setStyleSheet(f"font-family: Arial; font-size: 11pt; font-weight: bold; color: {txt_color}; border: none; background: transparent;")
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # 1. Painel de Sensores da Parte
         sensor_frame = QFrame()
-        sensor_frame.setStyleSheet(f"background-color: {frame_bg}; border: 1px solid {frame_border};")
+        sensor_frame.setStyleSheet(f"background-color: {frame_bg}; border: 1px solid {frame_border}; border-radius: 6px;")
         sensor_layout = QVBoxLayout(sensor_frame)
-        sensor_layout.setContentsMargins(15, 10, 15, 10)
+        sensor_layout.setContentsMargins(14, 8, 14, 8)
+        sensor_layout.setSpacing(4)
 
         for sensor_item in part_data['sensors']:
             sensor_name, value = sensor_item[0], sensor_item[1]
             item_label = QLabel(f"⚙️  {sensor_name}: {value}")
-            item_label.setStyleSheet(f"font-family: Arial; font-size: 10pt; color: {txt_color}; border: none; background: transparent;")
+            item_label.setStyleSheet(f"font-family: Arial; font-size: 9pt; color: {txt_color}; border: none; background: transparent;")
             sensor_layout.addWidget(item_label)
             self.sensor_labels[sensor_name] = item_label
 
         sensor_layout.addStretch()
-        layout.addWidget(sensor_frame)
+        layout.addWidget(sensor_frame, stretch=1)
 
+        # 2. Painel OBD-II & Telemetria CAN
+        obd_frame = QFrame()
+        obd_frame.setStyleSheet(f"background-color: {obd_bg}; border: 1px solid {frame_border}; border-radius: 6px;")
+        obd_main_layout = QVBoxLayout(obd_frame)
+        obd_main_layout.setContentsMargins(12, 8, 12, 8)
+        obd_main_layout.setSpacing(6)
+
+        obd_header = QLabel("🔌 INTERFACE OBD-II & TELEMETRIA CAN")
+        obd_header.setStyleSheet(f"font-family: Arial; font-size: 8.5pt; font-weight: bold; color: {txt_color}; border: none; background: transparent;")
+        obd_main_layout.addWidget(obd_header)
+
+        obd_content_layout = QHBoxLayout()
+        obd_content_layout.setContentsMargins(0, 0, 0, 0)
+        obd_content_layout.setSpacing(10)
+
+        # Coluna da esquerda: Conector OBD-II com pinos animados
+        obd_col = QVBoxLayout()
+        obd_col.setContentsMargins(0, 0, 0, 0)
+        obd_col.setSpacing(3)
+
+        self.obd2_widget = OBD2Widget()
+        obd_col.addWidget(self.obd2_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.pins_info_label = QLabel("Pinos Ativos: --")
+        self.pins_info_label.setStyleSheet(f"font-family: Arial; font-size: 7.5pt; font-weight: bold; color: {subtxt_color}; border: none; background: transparent;")
+        self.pins_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        obd_col.addWidget(self.pins_info_label)
+
+        obd_content_layout.addLayout(obd_col)
+
+        # Coluna da direita: Valor de raw_hex e status CAN
+        hex_panel = QFrame()
+        hex_panel.setStyleSheet(f"background-color: {hex_bg}; border: 1px solid {frame_border}; border-radius: 4px;")
+        hex_layout = QVBoxLayout(hex_panel)
+        hex_layout.setContentsMargins(8, 6, 8, 6)
+        hex_layout.setSpacing(3)
+
+        hex_title = QLabel("CAN RAW HEX:")
+        hex_title.setStyleSheet("font-family: Arial; font-size: 7.5pt; font-weight: bold; color: #94a3b8; border: none; background: transparent;")
+        hex_layout.addWidget(hex_title)
+
+        self.raw_hex_label = QLabel("Aguardando frame...")
+        self.raw_hex_label.setStyleSheet(f"font-family: 'Consolas', 'Courier New', monospace; font-size: 8.5pt; font-weight: bold; color: {hex_text_color}; border: none; background: transparent;")
+        self.raw_hex_label.setWordWrap(True)
+        hex_layout.addWidget(self.raw_hex_label)
+
+        self.bus_status_label = QLabel("● Barramento CAN: Ativo")
+        self.bus_status_label.setStyleSheet("font-family: Arial; font-size: 7.5pt; color: #4ade80; border: none; background: transparent;")
+        hex_layout.addWidget(self.bus_status_label)
+
+        obd_content_layout.addWidget(hex_panel, stretch=1)
+        obd_main_layout.addLayout(obd_content_layout)
+
+        layout.addWidget(obd_frame)
+
+        # 3. Botão Fechar
         btn_close = QPushButton("FECHAR JANELA")
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet("font-family: Arial; font-size: 9pt; font-weight: bold; padding: 6px 12px;")
+        btn_close.setStyleSheet("font-family: Arial; font-size: 9pt; font-weight: bold; padding: 5px 14px;")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        if initial_telemetry:
+            self.update_telemetry(initial_telemetry)
 
     def refresh_sensor_values(self):
         for sensor_item in self.part_data['sensors']:
             sensor_name, value = sensor_item[0], sensor_item[1]
             if sensor_name in self.sensor_labels:
                 self.sensor_labels[sensor_name].setText(f"⚙️  {sensor_name}: {value}")
+
+
+    def update_telemetry(self, data: dict):
+        self.refresh_sensor_values()
+        raw_hex = data.get("raw_hex", "")
+        if raw_hex:
+            self.raw_hex_label.setText(raw_hex)
+
+        active_pins = data.get("active_pins", [])
+        self.obd2_widget.set_active_pins(active_pins)
+        if active_pins:
+            pins_str = ", ".join(str(p) for p in sorted(active_pins))
+            self.pins_info_label.setText(f"Pinos Ativos: {pins_str}")
+        else:
+            self.pins_info_label.setText("Pinos Ativos: Nenhum")
 
 
 # ==============================================================================
@@ -199,6 +380,7 @@ class CarMultimediaApp(QMainWindow):
 
         self.current_part_index = 0
         self.active_pop_over = None
+        self.latest_telemetry_data = {}
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -353,6 +535,22 @@ class CarMultimediaApp(QMainWindow):
 
         self.mapa_widget.set_modo_escuro(self.modo_escuro)
 
+    def save_telemetry(self, nome_arquivo, dicionario:dict):
+        """
+        Recebe um dicionário e o salva em um arquivo no formato JSON.
+        """
+        try:
+            # Garante que o nome do arquivo termine com .json
+            if not nome_arquivo.endswith('.json'):
+                nome_arquivo += '.json'
+                
+            with open(nome_arquivo, 'w', encoding='utf-8') as arquivo:
+                # indent=4 deixa o visual organizado; ensure_ascii=False preserva acentos
+                json.dump(dicionario, arquivo, indent=4, ensure_ascii=False)
+                
+        except Exception as e:
+            print(f"Ocorreu um erro ao salvar o arquivo: {e}")
+
     @Slot(dict)
     def set_sensor_data(self, data: dict):
         """
@@ -360,6 +558,7 @@ class CarMultimediaApp(QMainWindow):
         simulador). A Velocidade vem do mapa via set_velocidade —
         então cada sensor tem um único escritor, sem conflito.
         """
+        self.latest_telemetry_data = data
         for part in self.car_parts_data:
             if part["name"] == "MOTOR E SISTEMAS":
                 for sensor in part["sensors"]:
@@ -369,7 +568,20 @@ class CarMultimediaApp(QMainWindow):
                         sensor[1] = f"{data.get('temp', 0.0)}°C"
 
         if self.active_pop_over and self.active_pop_over.isVisible():
-            self.active_pop_over.refresh_sensor_values()
+            self.active_pop_over.update_telemetry(data)
+
+        self.save_telemetry(
+        "telemetry",
+        {
+            "speed": int(self.car_parts_data[0]["sensors"][1][1].split(' ')[0]),
+            "rpm": int(self.car_parts_data[0]["sensors"][0][1].split(' ')[0]),
+            "temp": float(self.car_parts_data[0]["sensors"][2][1].split('°')[0]),
+            "lat" : f"{self.mapa_widget.carro_y:.2f}",
+            "long": f"{self.mapa_widget.carro_x:.2f}",
+            "fuel": 30,
+            "tires": 32,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
 
     @Slot(float)
     def set_velocidade(self, velocidade_kmh):
@@ -441,7 +653,12 @@ class CarMultimediaApp(QMainWindow):
             return
 
         part_data = active_parts[self.current_part_index]
-        self.active_pop_over = SensorPopOverDialog(part_data, modo_escuro=self.modo_escuro, parent=self)
+        self.active_pop_over = SensorPopOverDialog(
+            part_data,
+            initial_telemetry=self.latest_telemetry_data,
+            modo_escuro=self.modo_escuro,
+            parent=self
+        )
         self._center_dialog(self.active_pop_over)
         self.active_pop_over.exec()
         self.active_pop_over = None

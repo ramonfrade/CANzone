@@ -11,18 +11,65 @@ class MapaWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.modo_escuro = False
+        self.modo_escuro = True
 
         # Carregamento do Mapa com Fallback caso a imagem não exista
         pasta_script = os.path.dirname(os.path.abspath(__file__))
-        caminho_imagem = os.path.join(pasta_script, "mapa_grande.png")
+        caminho_imagem = os.path.join(pasta_script, "mapa.png")
 
         self.imagem_existe = os.path.exists(caminho_imagem)
         if self.imagem_existe:
             self.pixmap_mapa_completo = QPixmap(caminho_imagem)
         else:
-            self.pixmap_mapa_completo = QPixmap(2000, 2000)
+            self.pixmap_mapa_completo = QPixmap(1024, 1024)
             self.pixmap_mapa_completo.fill(QColor("#1e293b"))
+
+        # Carregamento dos Ícones Especiais (icons / icones)
+        self.icones = {}
+        pasta_icones = os.path.join(pasta_script, "icons")
+        if not os.path.exists(pasta_icones):
+            pasta_icones = os.path.join(pasta_script, "icones")
+
+        if os.path.exists(pasta_icones):
+            for nome_arquivo in os.listdir(pasta_icones):
+                if nome_arquivo.lower().endswith(".png"):
+                    chave = os.path.splitext(nome_arquivo)[0].lower()
+                    caminho_icone = os.path.join(pasta_icones, nome_arquivo)
+                    pix = QPixmap(caminho_icone)
+                    if not pix.isNull():
+                        self.icones[chave] = pix.scaled(
+                            100, 100,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+
+        # Pontos de Interesse no mapa (coordenadas x, y no espaço do mapa)
+        self.pontos_interesse = [
+            {"tipo": "hospital", "x": 1350, "y": 1190, "nome": "Santa Casa de Misericórdia de Campos", "cor": "#ef4444"},
+            {"tipo": "hospital", "x": 995, "y": 690, "nome": "Hospital Escola Álvaro Alvim", "cor": "#ef4444"},
+            {"tipo": "hospital", "x": 1630, "y": 220, "nome": "Hospital geral Bené", "cor": "#ef4444"},
+            {"tipo": "restaurant", "x": 645, "y": 1870, "nome": "Aquariu's Steakhouse", "cor": "#f59e0b"},
+            {"tipo": "restaurant", "x": 550, "y": 300, "nome": "Pizza Buzz - Pelinca", "cor": "#f59e0b"},
+            {"tipo": "shop", "x": 970, "y": 860, "nome": "Drogaria Tamoios Campos dos Goytacazes", "cor": "#a63af3"},
+            {"tipo": "shop", "x": 1310, "y": 1015, "nome": "Shopping Pelinca Square Center", "cor": "#a63af3"},
+            {"tipo": "shop", "x": 1360, "y": 1580, "nome": "Shopping Avenida 28", "cor": "#a63af3"},
+            {"tipo": "shop", "x": 1815, "y": 490, "nome": "Shopping Avenida 28", "cor": "#a63af3"},
+            {"tipo": "hotel", "x": 1370, "y": 1710, "nome": "Comfort Hotel", "cor": "#38bdf8"},
+            {"tipo": "hotel", "x": 1740, "y": 1800, "nome": "Aptos. Via Park Flat", "cor": "#38bdf8"},
+            {"tipo": "school", "x": 808, "y": 1450, "nome": "IFF Campos Centro", "cor": "#10b981"},
+        ]
+
+        # Nomes das Ruas no mapa (coordenadas x, y no espaço do mapa)
+        self.nomes_ruas = [
+            {"nome": "RJ-216", "x": 1025, "y": 1650},
+            {"nome": "Rua Dr. Siqueira", "x": 1320, "y": 1440},
+            {"nome": "Av. Dom Bosco", "x": 130, "y": 1006},
+            {"nome": "R. Visconde de Inhaúma", "x": 450, "y": 800},
+            {"nome": "R. Marquês de Herval", "x": 450, "y": 560},
+            {"nome": "Av. Pelinca", "x": 1550, "y": 1250},
+            {"nome": "R. Alvarenga Filho", "x": 1580, "y": 1110},
+            {"nome": "R. Câmara Júnior", "x": 1440, "y": 740},
+        ]
 
         self.rota = [
                             (1245, 1641),
@@ -78,9 +125,22 @@ class MapaWidget(QWidget):
             self.pixmap_mapa_completo.fill(cor_fundo)
         self.atualizar_mapa()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+    def adicionar_ponto_interesse(self, tipo: str, x: float, y: float, nome: str = "", cor: str = "#ffffff"):
+        poi = {"tipo": tipo, "x": x, "y": y}
+        if nome:
+            poi["nome"] = nome
+        if cor:
+            poi["cor"] = cor
+        self.pontos_interesse.append(poi)
         self.atualizar_mapa()
+
+    def adicionar_rua(self, nome: str, x: float, y: float, angulo: float = 0.0):
+        self.nomes_ruas.append({"nome": nome, "x": x, "y": y, "angulo": angulo})
+        self.atualizar_mapa()
+
+    def adicionar_nome_rua(self, nome: str, x: float, y: float, angulo: float = 0.0):
+        self.adicionar_rua(nome, x, y, angulo)
+
 
     def calcular_angulo_inicial(self):
             alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
@@ -107,58 +167,6 @@ class MapaWidget(QWidget):
             ) ** 0.5
 
         return dist_restante_pixels * 1.5
-
-    def mover_carro(self):
-        if self.em_pausa:
-            self.atualizar_mapa()
-            return
-
-        alvo_x, alvo_y = self.rota[self.indice_ponto_atual]
-
-        dx = alvo_x - self.carro_x
-        dy = alvo_y - self.carro_y
-        distancia = (dx**2 + dy**2) ** 0.5
-
-        e_ultimo_segmento = self.indice_ponto_atual == len(self.rota) - 1
-        vel_minima = 0.0 if e_ultimo_segmento else self.VELOCIDADE_MIN_CURVA_KMH
-
-        fator_alvo = min(1.0, distancia / 200.0)
-        velocidade_alvo_kmh = vel_minima + (self.VELOCIDADE_MAX_KMH - vel_minima) * (fator_alvo**0.8)
-
-        if self.indice_ponto_atual == 1:
-            origem_x, origem_y = self.rota[0]
-            dist_origem = ((self.carro_x - origem_x) ** 2 + (self.carro_y - origem_y) ** 2) ** 0.5
-            fator_origem = min(1.0, dist_origem / 150.0)
-            velocidade_alvo_kmh *= fator_origem
-
-        if self.velocidade_kmh < velocidade_alvo_kmh:
-            self.velocidade_kmh = min(velocidade_alvo_kmh, self.velocidade_kmh + 0.6)
-        elif self.velocidade_kmh > velocidade_alvo_kmh:
-            self.velocidade_kmh = max(velocidade_alvo_kmh, self.velocidade_kmh - 0.9)
-
-        self.velocidade = max(0.05, (self.velocidade_kmh / self.VELOCIDADE_MAX_KMH) * 1.8)
-
-        if dx != 0 or dy != 0:
-            angulo_alvo = math.degrees(math.atan2(dy, dx))
-            diferenca = (angulo_alvo - self.angulo_atual + 180) % 360 - 180
-            self.angulo_atual += diferenca * 0.10
-
-        if distancia < max(1.0, self.velocidade):
-            self.carro_x = float(alvo_x)
-            self.carro_y = float(alvo_y)
-
-            if e_ultimo_segmento:
-                self.velocidade_kmh = 0.0
-                self.velocidade = 0.0
-                self.em_pausa = True
-                QTimer.singleShot(2000, self.reiniciar_rota)
-            else:
-                self.indice_ponto_atual += 1
-        else:
-            self.carro_x += (dx / distancia) * self.velocidade
-            self.carro_y += (dy / distancia) * self.velocidade
-
-        self.atualizar_mapa()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -239,6 +247,93 @@ class MapaWidget(QWidget):
                 self.rota[i + 1][1],
             )
 
+        # 1.1 RENDERIZAÇÃO DOS ÍCONES E NOMES DE PONTOS DE INTERESSE
+        for poi in self.pontos_interesse:
+            tipo = poi.get("tipo", "").lower()
+            nome = poi.get("nome", "")
+            cor_val = poi.get("cor", "#ffffff")
+            cor_poi = QColor(cor_val) if QColor(cor_val).isValid() else QColor("#ffffff")
+
+            pix = self.icones.get(tipo)
+
+            painter.save()
+            painter.translate(poi["x"], poi["y"])
+            # Compensa a rotação do mapa para que o ícone e o nome acompanhem a orientação vertical da tela
+            painter.rotate(self.angulo_atual + 90)
+
+            if pix and not pix.isNull():
+                w_pix = pix.width()
+                h_pix = pix.height()
+                painter.drawPixmap(-w_pix // 2, -h_pix // 2, pix)
+                offset_y = h_pix // 2 + 4
+            else:
+                raio = 14
+                painter.setBrush(cor_poi)
+                painter.setPen(QPen(QColor(255, 255, 255, 220), 2))
+                painter.drawEllipse(QPoint(0, 0), raio, raio)
+                offset_y = raio + 6
+
+            if nome:
+                fonte_poi = QFont("Segoe UI", 9, QFont.Weight.Bold)
+                painter.setFont(fonte_poi)
+                fm = painter.fontMetrics()
+                largura_texto = fm.horizontalAdvance(nome)
+                altura_texto = fm.height()
+
+                pad_x = 6
+                pad_y = 2
+                ret_x = -largura_texto // 2 - pad_x
+                ret_y = offset_y
+                ret_w = largura_texto + (pad_x * 2)
+                ret_h = altura_texto + (pad_y * 2)
+
+                # Caixa de fundo translúcida para contraste e legibilidade
+                painter.setBrush(QColor(15, 23, 42, 215))
+                painter.setPen(QPen(cor_poi, 1.5))
+                painter.drawRoundedRect(ret_x, ret_y, ret_w, ret_h, 4, 4)
+
+                # Texto com a cor customizada
+                painter.setPen(cor_poi)
+                painter.drawText(
+                    ret_x,
+                    ret_y,
+                    ret_w,
+                    ret_h,
+                    Qt.AlignmentFlag.AlignCenter,
+                    nome,
+                )
+
+            painter.restore()
+
+        # 1.2 RENDERIZAÇÃO DOS NOMES DAS RUAS
+        fonte_rua = QFont("Segoe UI", 9, QFont.Weight.DemiBold)
+        for rua in self.nomes_ruas:
+            nome = rua.get("nome", "")
+            if not nome:
+                continue
+            x = rua.get("x", 0.0)
+            y = rua.get("y", 0.0)
+            angulo_extra = rua.get("angulo", 0.0)
+
+            painter.save()
+            painter.translate(x, y)
+            # Acompanha a rotação para manter a legibilidade
+            painter.rotate(self.angulo_atual + 90 + angulo_extra)
+
+            painter.setFont(fonte_rua)
+            painter.setPen(QColor(255, 255, 255))  # Cor branca pura, sem contorno
+
+            fm = painter.fontMetrics()
+            largura_texto = fm.horizontalAdvance(nome)
+            altura_texto = fm.height()
+
+            painter.drawText(
+                -largura_texto // 2,
+                altura_texto // 4,
+                nome,
+            )
+            painter.restore()
+
         # 2. SETA INDICADORA DO CARRO
         painter.resetTransform()
         painter.setPen(Qt.PenStyle.NoPen)
@@ -273,7 +368,7 @@ class MapaWidget(QWidget):
         painter.drawText(15, h - 45, 90, 20, Qt.AlignmentFlag.AlignCenter, "KM/H")
 
         # 3.2 PLACA DE LIMITE DE VELOCIDADE
-        centro_x, centro_y = 125, h - 50
+        centro_x, centro_y = 150, h - 50
         raio = 18
 
         painter.setBrush(QColor("white"))

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telemetria do Veículo</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --bg-main: #0f172a;
+            --bg-top: #1e293b;
+            --bg-bottom: #0f172a;
+            --btn-bg: #1e293b;
+            --btn-fg: #f8fafc;
+            --border-col: #334155;
+            --car-frame-bg: #1e293b;
+            --accent: #38bdf8;
+            --accent-green: #22c55e;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+            color: var(--btn-fg);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+        }
+
+        /* Card de Login */
+        .login-card {
+            background: var(--car-frame-bg);
+            border: 1px solid var(--border-col);
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 380px;
+            margin: 0 auto;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .login-card i.lock-icon {
+            font-size: 2.5rem;
+            color: var(--accent);
+            margin-bottom: 15px;
+        }
+
+        .login-card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .login-card p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            background: var(--bg-main);
+            border: 1px solid var(--border-col);
+            border-radius: 8px;
+            color: var(--btn-fg);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--btn-bg);
+            border: 1px solid var(--accent);
+            color: var(--btn-fg);
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: var(--accent);
+            color: var(--bg-main);
+        }
+
+        #error-msg {
+            color: #ef4444;
+            font-size: 0.85rem;
+            margin-top: 12px;
+            display: none;
+        }
+
+        /* Painel Dashboard */
+        #dashboard {
+            display: none;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-col);
+        }
+
+        .header h2 {
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .timestamp {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            background: var(--bg-main);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--border-col);
+        }
+
+        .grid-dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .telemetry-card {
+            background: var(--car-frame-bg);
+            border: 1px solid var(--border-col);
+            padding: 20px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s;
+        }
+
+        .telemetry-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            background: var(--bg-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.3rem;
+            color: var(--accent);
+            border: 1px solid var(--border-col);
+        }
+
+        .card-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-value {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: var(--accent-green);
+            margin-top: 2px;
+        }
+
+        @media (max-width: 480px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .grid-dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="login-box" class="login-card">
+            <i class="fa-solid fa-shield-halved lock-icon"></i>
+            <h2>Acesso Restrito</h2>
+            <p>Insira a credencial para exibir a telemetria</p>
+            <input type="password" id="password" placeholder="Senha de Acesso">
+            <button onclick="autenticar()">Entrar</button>
+            <p id="error-msg"><i class="fa-solid fa-circle-exclamation"></i> Senha incorreta!</p>
+        </div>
+
+        <div id="dashboard">
+            <div class="header">
+                <h2><i class="fa-solid fa-car"></i> Painel do Veículo</h2>
+                <div class="timestamp">
+                    <i class="fa-regular fa-clock"></i> <span id="time">--:--:--</span>
+                </div>
+            </div>
+
+            <div class="grid-dashboard">
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-gauge-high"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Velocidade</span>
+                        <span id="speed" class="card-value">-- km/h</span>
+                    </div>
+                </div>
+
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-arrows-rotate"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">RPM</span>
+                        <span id="rpm" class="card-value">-- RPM</span>
+                    </div>
+                </div>
+
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-temperature-half"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Temperatura</span>
+                        <span id="temp" class="card-value">-- °C</span>
+                    </div>
+                </div>
+
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-gas-pump"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Combustível</span>
+                        <span id="fuel" class="card-value">--%</span>
+                    </div>
+                </div>
+
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-compact-disc"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Pressão Pneus</span>
+                        <span id="tires" class="card-value">-- PSI</span>
+                    </div>
+                </div>
+
+                <div class="telemetry-card">
+                    <div class="card-icon"><i class="fa-solid fa-location-dot"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Coordenadas</span>
+                        <span id="coords" class="card-value">-- , --</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function autenticar() {
+            const password = document.getElementById('password').value;
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            if (res.ok) {
+                document.getElementById('login-box').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                iniciarAtualizacao();
+            } else {
+                document.getElementById('error-msg').style.display = 'block';
+            }
+        }
+
+        function iniciarAtualizacao() {
+            buscarDados();
+            setInterval(buscarDados, 1000);
+        }
+
+        async function buscarDados() {
+            const res = await fetch('/api/telemetria');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('speed').innerText = data.speed + ' km/h';
+                document.getElementById('rpm').innerText = data.rpm + ' RPM';
+                document.getElementById('temp').innerText = data.temp + ' °C';
+                document.getElementById('fuel').innerText = data.fuel + '%';
+                document.getElementById('tires').innerText = data.tires + ' PSI';
+                document.getElementById('coords').innerText = `${data.lat}, ${data.long}`;
+                document.getElementById('time').innerText = data.timestamp;
+            }
+        }
+    </script>
+</body>
+</html>
